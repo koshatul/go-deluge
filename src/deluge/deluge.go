@@ -1,4 +1,5 @@
 // Copyright 2013-2018 Bruno Albuquerque (bga@bug-br.org.br).
+// Copyright 2013-2018 Kosh (koshatul@gmail.com).
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy of
@@ -26,6 +27,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"sync/atomic"
+	"time"
+
+	"github.com/mitchellh/mapstructure"
 )
 
 // Deluge represents an endpoint for Deluge RPC requests.
@@ -41,11 +45,14 @@ type Deluge struct {
 
 // New instantiates a new Deluge instance and authenticates with the
 // server.
-func New(url, password string) (*Deluge, error) {
+func New(url, password string, timeout time.Duration) (*Deluge, error) {
+	client := &http.Client{
+		Timeout: timeout,
+	}
 	d := &Deluge{
 		url,
 		password,
-		new(http.Client),
+		client,
 		nil,
 		0,
 	}
@@ -60,11 +67,10 @@ func New(url, password string) (*Deluge, error) {
 
 // CoreAddTorrentFile wraps the core.add_torrent_file RPC call. fileName is the
 // name of the original torrent file. fileDump is the base64 encoded contents of
-// the file and options is a map with options to be set (consult de Deluge
+// the file and options is a map with options to be set (consult the Deluge
 // Torrent documentation for a list of valid options).
-func (d *Deluge) CoreAddTorrentFile(fileName, fileDump string,
-	options map[string]interface{}) (string, error) {
-	response, err := d.sendJsonRequest("core.add_torrent_file",
+func (d *Deluge) CoreAddTorrentFile(fileName, fileDump string, options map[string]interface{}) (string, error) {
+	response, err := d.sendJSONRequest("core.add_torrent_file",
 		[]interface{}{fileName, fileDump, options})
 	if err != nil {
 		return "", err
@@ -73,13 +79,12 @@ func (d *Deluge) CoreAddTorrentFile(fileName, fileDump string,
 	return response["result"].(string), nil
 }
 
-// CoreAddTorrentMagnet wraps the core.add_torrent_magnet RPC call. magnetUrl is
+// CoreAddTorrentMagnet wraps the core.add_torrent_magnet RPC call. magnetURL is
 // the Magnet URL for the torrent and options is a map with options to be set
-// (consult de Deluge Torrent documentation for a list of valid options).
-func (d *Deluge) CoreAddTorrentMagnet(magnetUrl string,
-	options map[string]interface{}) (string, error) {
-	response, err := d.sendJsonRequest("core.add_torrent_magnet",
-		[]interface{}{magnetUrl, options})
+// (consult the Deluge Torrent documentation for a list of valid options).
+func (d *Deluge) CoreAddTorrentMagnet(magnetURL string, options map[string]interface{}) (string, error) {
+	response, err := d.sendJSONRequest("core.add_torrent_magnet",
+		[]interface{}{magnetURL, options})
 	if err != nil {
 		return "", err
 	}
@@ -87,22 +92,70 @@ func (d *Deluge) CoreAddTorrentMagnet(magnetUrl string,
 	return response["result"].(string), nil
 }
 
-// CoreAddTorrentUrl wraps the core.add_torrent_url RPC call. torrentUrl is
+// CoreAddTorrentURL wraps the core.add_torrent_url RPC call. torrentURL is
 // the URL for the torrent and options is a map with options to be set
 // (consult de Deluge Torrent documentation for a list of valid options).
-func (d *Deluge) CoreAddTorrentUrl(torrentUrl string,
-	options map[string]interface{}) (string, error) {
-	response, err := d.sendJsonRequest("core.add_torrent_url",
-		[]interface{}{torrentUrl, options})
+func (d *Deluge) CoreAddTorrentURL(torrentURL string, options map[string]interface{}) (string, error) {
+	response, err := d.sendJSONRequest("core.add_torrent_url",
+		[]interface{}{torrentURL, options})
 	if err != nil {
 		return "", err
 	}
 
 	return response["result"].(string), nil
+}
+
+// CoreGetTorrentStatus needs a comment
+func (d *Deluge) CoreGetTorrentStatus(hash string) (*Torrent, error) {
+	response, err := d.sendJSONRequest("core.get_torrent_status", []interface{}{
+		hash,
+		[]string{},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := &Torrent{}
+	err = mapstructure.Decode(response["result"], result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// CoreGetTorrentsStatus needs a comment
+func (d *Deluge) CoreGetTorrentsStatus(filterDict map[string]string) (map[string]Torrent, error) {
+	response, err := d.sendJSONRequest("core.get_torrents_status", []interface{}{
+		filterDict,
+		[]string{},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]Torrent)
+	err = mapstructure.Decode(response["result"], &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// CoreRemoveTorrent needs a comment
+func (d *Deluge) CoreRemoveTorrent(hash string, removeData bool) (bool, error) {
+	response, err := d.sendJSONRequest("core.remove_torrent",
+		[]interface{}{hash, removeData})
+	if err != nil {
+		return false, err
+	}
+
+	return response["result"].(bool), nil
 }
 
 func (d *Deluge) authLogin() error {
-	response, err := d.sendJsonRequest("auth.login",
+	response, err := d.sendJSONRequest("auth.login",
 		[]interface{}{d.password})
 	if err != nil {
 		return err
@@ -115,8 +168,7 @@ func (d *Deluge) authLogin() error {
 	return nil
 }
 
-func (d *Deluge) sendJsonRequest(method string,
-	params []interface{}) (map[string]interface{}, error) {
+func (d *Deluge) sendJSONRequest(method string, params []interface{}) (map[string]interface{}, error) {
 	atomic.AddUint64(&(d.id), 1)
 	data, err := json.Marshal(map[string]interface{}{
 		"method": method,
@@ -133,6 +185,7 @@ func (d *Deluge) sendJsonRequest(method string,
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
 	if d.cookies != nil {
 		for _, cookie := range d.cookies {

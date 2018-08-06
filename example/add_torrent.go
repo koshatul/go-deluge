@@ -3,14 +3,15 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
-	"fmt"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
-	deluge "github.com/brunoga/go-deluge"
+	"github.com/koshatul/go-deluge/src/deluge"
 )
 
 // Flags.
@@ -26,13 +27,13 @@ func main() {
 		return
 	}
 
-	d, err := deluge.New("http://" + *delugeAddress + "/json", *delugePassword)
+	d, err := deluge.New("http://"+*delugeAddress+"/json", *delugePassword, 30*time.Second)
 	if err != nil {
 		panic(err)
 	}
 
 	options := map[string]interface{}{
-		"add_paused" : *addPaused,
+		"add_paused": *addPaused,
 	}
 
 	for _, torrent := range flag.Args() {
@@ -44,13 +45,13 @@ func main() {
 				continue
 			}
 		} else if strings.Index(torrent, "://") != -1 {
-			id, err = d.CoreAddTorrentUrl(torrent, options)
+			id, err = d.CoreAddTorrentURL(torrent, options)
 			if err != nil {
 				fmt.Println("Error adding torrent via URL :", err)
 				continue
 			}
 		} else {
-			file, err :=  os.Open(torrent)
+			file, err := os.Open(torrent)
 			if err != nil {
 				fmt.Println("Error opening local file :", err)
 				continue
