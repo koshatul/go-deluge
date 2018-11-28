@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -37,8 +38,8 @@ type Deluge struct {
 	url      string
 	password string
 
-	client  *http.Client
-	cookies []*http.Cookie
+	client    *http.Client
+	cookieJar http.CookieJar
 
 	id uint64
 }
@@ -46,14 +47,16 @@ type Deluge struct {
 // New instantiates a new Deluge instance and authenticates with the
 // server.
 func New(url, password string, timeout time.Duration) (*Deluge, error) {
+	cookieJar := NewCookieJar()
 	client := &http.Client{
 		Timeout: timeout,
+		Jar:     cookieJar,
 	}
 	d := &Deluge{
 		url,
 		password,
 		client,
-		nil,
+		cookieJar,
 		0,
 	}
 
@@ -143,6 +146,17 @@ func (d *Deluge) CoreGetTorrentsStatus(filterDict map[string]string) (map[string
 	return result, nil
 }
 
+// CorePauseTorrent needs a comment
+func (d *Deluge) CorePauseTorrent(hash string) (bool, error) {
+	response, err := d.sendJSONRequest("core.pause_torrent", []interface{}{hash})
+	log.Printf("Response: %#v\n", response)
+	if err != nil {
+		return false, err
+	}
+
+	return response["result"].(bool), nil
+}
+
 // CoreRemoveTorrent needs a comment
 func (d *Deluge) CoreRemoveTorrent(hash string, removeData bool) (bool, error) {
 	response, err := d.sendJSONRequest("core.remove_torrent",
@@ -154,9 +168,20 @@ func (d *Deluge) CoreRemoveTorrent(hash string, removeData bool) (bool, error) {
 	return response["result"].(bool), nil
 }
 
+// CoreResumeTorrent needs a comment
+func (d *Deluge) CoreResumeTorrent(hash string) (bool, error) {
+	response, err := d.sendJSONRequest("core.resume_torrent", []interface{}{
+		hash,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return response["result"].(bool), nil
+}
+
 func (d *Deluge) authLogin() error {
-	response, err := d.sendJSONRequest("auth.login",
-		[]interface{}{d.password})
+	response, err := d.sendJSONRequest("auth.login", []interface{}{d.password})
 	if err != nil {
 		return err
 	}
@@ -187,12 +212,6 @@ func (d *Deluge) sendJSONRequest(method string, params []interface{}) (map[strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	if d.cookies != nil {
-		for _, cookie := range d.cookies {
-			req.AddCookie(cookie)
-		}
-	}
-
 	resp, err := d.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -205,8 +224,6 @@ func (d *Deluge) sendJSONRequest(method string, params []interface{}) (map[strin
 			"received non-ok status to http request : %d",
 			resp.StatusCode)
 	}
-
-	d.cookies = resp.Cookies()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {

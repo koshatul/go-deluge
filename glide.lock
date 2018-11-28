@@ -1,0 +1,6 @@
+hash: b7f1e0d80dcc0a545f7a56b2287f222abfc74669b4e0d02b025a038f1503fa44
+updated: 2018-11-28T15:44:34.760075+10:00
+imports:
+- name: github.com/mitchellh/mapstructure
+  version: 3536a929edddb9a5b34bd6861dc4a9647cb459fe
+testImports: []
